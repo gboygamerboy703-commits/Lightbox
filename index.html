@@ -221,10 +221,32 @@ async function run(){
         if(message.type==='data')payload=message.data;
       }
       clearTimeout(timer);
-      const item=payload&&payload[0];
-      const file=item&&item.image?item.image:item;
-      const src=typeof file==='string'?file:(file&&(file.url||file.path));
-      if(!src)throw new Error('The engine finished but did not return a displayable image.');
+      // The Space returns two outputs: the generated image and the seed.
+      // Gradio may represent its image output as a URL, FileData object, or nested array.
+      const unpackImage=value=>{
+        if(!value)return null;
+        if(typeof value==='string')return value;
+        if(Array.isArray(value)){for(const part of value){const found=unpackImage(part);if(found)return found}return null}
+        if(typeof value==='object'){
+          if(value.image){const found=unpackImage(value.image);if(found)return found}
+          if(value.url)return value.url;
+          if(value.path){
+            if(/^https?:\\/\\//i.test(value.path))return value.path;
+            return 'https://black-forest-labs-flux2-klein-4b.hf.space/file='+encodeURIComponent(value.path);
+          }
+          if(value.data)return unpackImage(value.data);
+        }
+        return null;
+      };
+      const src=unpackImage(payload);
+      if(!src)throw new Error('The engine returned a result, but Lightbox could not read its image URL. Please try once more.');
+      // Wait for the image to load before adding it to the gallery.
+      await new Promise((resolve,reject)=>{
+        const test=new Image();
+        test.onload=resolve;
+        test.onerror=()=>reject(new Error('The image was generated, but its file link could not be loaded. The engine may have expired its temporary file.'));
+        test.src=src;
+      });
       add(src,raw);
       added++;
       pending--;
