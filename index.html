@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lightbox – AI photo studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e8ecef;--panel:#f7f9fa;--line:#cdd4da;--ink:#14212b;--mut:#5b6b78;--acc:#d6246e;--accink:#fff;--field:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#141a20;--panel:#1b232b;--line:#2c3742;--ink:#e6edf2;--mut:#8fa0ae;--acc:#ff5c9a;--accink:#14080e;--field:#10161b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Bricolage Grotesque",system-ui,sans-serif}
+.app{display:grid;grid-template-columns:380px 1fr;min-height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:14px;position:sticky;top:0;height:100vh;overflow:auto}
+h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin:0}
+h1 span{color:var(--acc)}
+.sub{color:var(--mut);margin:-8px 0 0;font-size:14px}
+label{font-size:13px;color:var(--mut);display:block;margin-bottom:4px}
+textarea,select,input[type=text],input[type=password],input[type=number]{width:100%;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit}
+textarea{min-height:110px;resize:vertical}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:8px;padding:7px 12px}
+button:hover{border-color:var(--acc)}
+button.go{background:var(--acc);color:var(--accink);border-color:var(--acc);font-weight:600;padding:12px;font-size:16px}
+button:disabled{opacity:.6;cursor:wait}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--mut);cursor:pointer}
+.drop.over{border-color:var(--acc);color:var(--ink)}
+#refs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.th{position:relative;width:64px;height:64px}
+.th img{width:100%;height:100%;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.th button{position:absolute;top:-6px;right:-6px;padding:0;width:20px;height:20px;line-height:1;border-radius:50%;font-size:13px}
+#mode{font-weight:600}
+main{padding:24px}
+#gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.card{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card img{display:block;width:100%}
+.card figcaption{padding:10px;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--mut)}
+.card figcaption div{display:flex;gap:6px}
+.card button{padding:4px 10px;font-size:13px}
+.sk{aspect-ratio:1;background:linear-gradient(100deg,var(--panel) 30%,var(--line) 50%,var(--panel) 70%);background-size:300% 100%;animation:sh 1.4s infinite}
+@keyframes sh{to{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}}
+.empty{color:var(--mut);grid-column:1/-1;padding:60px 0;text-align:center}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:.2s;max-width:90vw;z-index:20}
+#toast.on{opacity:1;transform:translateX(-50%)}
+.modal{position:fixed;inset:0;background:rgba(10,14,18,.78);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.modal[hidden]{display:none}
+.edbox{background:var(--panel);border-radius:14px;display:grid;grid-template-columns:1fr 280px;gap:16px;padding:16px;max-width:1100px;width:100%;max-height:94vh}
+.stagewrap{display:flex;align-items:center;justify-content:center;overflow:auto;background:repeating-conic-gradient(var(--line) 0 25%,transparent 0 50%) 0 0/16px 16px;border-radius:8px}
+.stage{position:relative;display:inline-block;line-height:0}
+#cv{max-width:100%;max-height:78vh;display:block}
+#mk{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+.tools{overflow:auto;display:flex;flex-direction:column;gap:8px}
+.tools .sl{display:grid;grid-template-columns:90px 1fr;align-items:center;font-size:13px;color:var(--mut)}
+.tools input[type=range]{width:100%;accent-color:var(--acc)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px}
+@media(max-width:860px){.app{grid-template-columns:1fr}aside{position:static;height:auto}.edbox{grid-template-columns:1fr;overflow:auto}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <h1>Light<span>box</span></h1>
+  <p class="sub">Describe a photo, or add a photo and describe the change.</p>
+
+  <div><label for="prompt">Prompt</label>
+  <textarea id="prompt" placeholder="A fisherman mending nets at sunrise, harbor in soft fog"></textarea></div>
+
+  <div><label>Photos to edit (optional)</label>
+  <div class="drop" id="drop">Drop, paste or click to add images</div>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+  <div id="refs"></div></div>
+  <div id="mode">Generate mode</div>
+
+  <div class="row">
+    <div><label for="prov">Engine</label>
+    <select id="prov"><option value="poll">Free (generate only)</option><option value="oa">OpenAI (generate + edit)</option></select></div>
+    <div><label for="style">Style</label>
+    <select id="style"><option value="">Natural photo</option><option>golden hour sunlight, shallow depth of field</option><option>studio lighting, sharp focus, portrait lens</option><option>cinematic film still, 35mm, fine grain</option><option>black and white photograph, high contrast</option><option>aerial drone photograph</option><option>macro photograph, fine detail</option><option>clean product photo on a white background</option><option>candid street photography</option></select></div>
+  </div>
+  <div class="row">
+    <div><label for="size">Shape</label>
+    <select id="size"><option value="1024x1024">Square</option><option value="1536x1024">Landscape</option><option value="1024x1536">Portrait</option></select></div>
+    <div><label for="n">How many</label>
+    <select id="n"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+  </div>
+  <div class="row" id="pollOpts">
+    <div><label for="pmodel">Model</label><select id="pmodel"><option value="flux">Flux</option><option value="turbo">Turbo</option></select></div>
+    <div><label for="seed">Seed (optional)</label><input type="number" id="seed" placeholder="random"></div>
+  </div>
+  <div id="oaOpts" hidden>
+    <label for="key">OpenAI API key (stays in this browser)</label>
+    <input type="password" id="key" placeholder="sk-..." autocomplete="off">
+    <div style="margin-top:8px"><label for="q">Quality</label>
+    <select id="q"><option value="auto">Auto</option><option value="low">Low (fast)</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+  </div>
+  <button class="go" id="go">Generate</button>
+</aside>
+
+<main><div id="gal"></div></main>
+</div>
+
+<div class="modal" id="ed" hidden>
+  <div class="edbox">
+    <div class="stagewrap"><div class="stage"><canvas id="cv"></canvas><canvas id="mk"></canvas></div></div>
+    <div class="tools">
+      <div id="sliders"></div>
+      <div class="btns"><button id="rotL">Rotate</button><button id="flip">Flip</button><button id="reset">Reset</button></div>
+      <label class="chk"><input type="checkbox" id="paint"> Paint the area AI should change</label>
+      <div class="sl"><span>Brush</span><input type="range" id="brush" min="8" max="160" value="48"></div>
+      <div class="btns"><button id="clrMask">Clear paint</button></div>
+      <div class="btns"><button id="apply">Keep changes</button><button id="toAI">Use in prompt</button><button id="save">Download</button><button id="close">Close</button></div>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let refs=[],results=[],pending=0,maskBlob=null;
+
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),9000)}
+try{$('key').value=localStorage.getItem('lb_key')||''}catch(e){}
+
+/* ---------- uploads ---------- */
+const toURL=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});
+async function addFiles(files){for(const f of files){if(f.type.startsWith('image/'))refs.push({name:f.name||'image.png',url:await toURL(f)})}renderRefs()}
+function renderRefs(){
+  $('refs').innerHTML=refs.map((r,i)=>`<div class="th"><img src="${r.url}" alt=""><button data-rm="${i}" aria-label="Remove image">×</button></div>`).join('');
+  if(!refs.length)maskBlob=null;
+  $('mode').textContent=refs.length?`Edit mode: ${refs.length} image${refs.length>1?'s':''}${maskBlob?', paint attached':''}`:'Generate mode';
+  $('go').textContent=refs.length?'Edit photo':'Generate';
+}
+$('refs').onclick=e=>{const i=e.target.dataset.rm;if(i!==undefined){if(+i===0)maskBlob=null;refs.splice(+i,1);renderRefs()}};
+$('drop').onclick=()=>$('file').click();
+$('file').onchange=e=>{addFiles(e.target.files);e.target.value=''};
+['dragover','dragenter'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('over')}));
+['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('over')}));
+$('drop').addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+addEventListener('paste',e=>{const f=[...(e.clipboardData?.files||[])];if(f.length)addFiles(f)});
+
+/* ---------- engine options ---------- */
+function syncProv(){const oa=$('prov').value==='oa';$('oaOpts').hidden=!oa;$('pollOpts').hidden=oa}
+$('prov').onchange=syncProv;syncProv();
+
+/* ---------- gallery ---------- */
+function add(src,prompt){results.unshift({src,prompt});renderGal()}
+function renderGal(){
+  $('gal').innerHTML='<div class="card sk"></div>'.repeat(pending)+results.map((r,i)=>`<figure class="card"><img src="${r.src}" alt="${esc(r.prompt)}"><figcaption><span>${esc(r.prompt).slice(0,90)}</span><div><button data-ed="${i}">Edit</button><button data-ref="${i}">Use as reference</button><button data-dl="${i}">Download</button></div></figcaption></figure>`).join('')
+  ||'<p class="empty">No photos yet. Describe one and press Generate.</p>';
+}
+$('gal').onclick=e=>{
+  const d=e.target.dataset;
+  if(d.ed!==undefined)openEditor(results[d.ed].src);
+  if(d.ref!==undefined){refs.push({name:'result.png',url:results[d.ref].src});renderRefs();toast('Added as a reference image')}
+  if(d.dl!==undefined)download(results[d.dl].src,'lightbox-'+Date.now()+'.png');
+};
+function download(src,name){const a=document.createElement('a');a.href=src;a.download=name;a.target='_blank';document.body.appendChild(a);a.click();a.remove()}
+renderGal();
+
+/* ---------- generate / edit ---------- */
+async function loadRemote(url){
+  const end=Date.now()+60000;let tries=0;
+  while(Date.now()<end){
+    tries++;const u=url+'&_try='+tries;
+    try{
+      const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),Math.max(5000,end-Date.now()));
+      const r=await fetch(u,{signal:ctl.signal});clearTimeout(t);
+      if(r.ok){const b=await r.blob();if(b.size>1000){const d=await toURL(new Blob([b],{type:b.type.startsWith('image/')?b.type:'image/jpeg'}));await new Promise((ok,no)=>{const i=new Image();i.onload=ok;i.onerror=no;i.src=d});return d}}
+    }catch(e){
+      /* fetch can be blocked by the browser; fall back to a plain image load */
+      try{await new Promise((ok,no)=>{const i=new Image(),t=setTimeout(no,30000);i.onload=()=>{clearTimeout(t);ok()};i.onerror=()=>{clearTimeout(t);no()};i.src=u});return u}catch(_){}
+    }
+    await new Promise(r=>setTimeout(r,4000));
+  }
+  throw new Error('No photo after 1 minute. Press Generate to try again, or switch to OpenAI.');
+}
+async function run(){
+  const raw=$('prompt').value.trim();
+  if(!raw)return toast('Write a prompt first');
+  const full=raw+', realistic photograph shot on a real camera, natural textures'+($('style').value?', '+$('style').value:'');
+  const n=+$('n').value,size=$('size').value,[w,h]=size.split('x').map(Number);
+  $('go').disabled=true;pending=n;renderGal();
+  const t0=Date.now(),tick=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);$('go').textContent='Working... '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},500);
+  try{
+    if($('prov').value==='poll'){
+      if(refs.length){$('prov').value='oa';syncProv();throw new Error('Uploaded photos need the OpenAI engine. I switched it for you: add your API key and press Edit photo again.')}
+      const base=$('seed').value?+$('seed').value:Math.floor(Math.random()*1e6);
+      for(let i=0;i<n;i++){
+        const url=`https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=${w}&height=${h}&seed=${base+i}&nologo=true&model=${$('pmodel').value}`;
+        add(await loadRemote(url),raw);pending--;renderGal();
+      }
+    }else{
+      const key=$('key').value.trim();
+      if(!key)throw new Error('Add your OpenAI API key first');
+      try{localStorage.setItem('lb_key',key)}catch(e){}
+      const head={Authorization:'Bearer '+key};let res;
+      if(refs.length){
+        const fd=new FormData();
+        fd.append('model','gpt-image-1');fd.append('prompt',full);fd.append('n',n);fd.append('size',size);fd.append('quality',$('q').value);
+        for(const r of refs)fd.append('image[]',await (await fetch(r.url)).blob(),r.name);
+        if(maskBlob)fd.append('mask',maskBlob,'mask.png');
+        res=await fetch('https://api.openai.com/v1/images/edits',{method:'POST',headers:head,body:fd});
+      }else{
+        res=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{...head,'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-image-1',prompt:full,n,size,quality:$('q').value})});
+      }
+      const j=await res.json();
+      if(!res.ok)throw new Error(j.error?.message||'OpenAI returned error '+res.status);
+      j.data.forEach(d=>add('data:image/png;base64,'+d.b64_json,raw));
+    }
+  }catch(e){toast(e.message||'Something went wrong')}
+  clearInterval(tick);pending=0;$('go').disabled=false;renderGal();renderRefs();
+}
+$('go').onclick=run;
+$('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))run()});
+
+/* ---------- editor ---------- */
+const cv=$('cv'),ctx=cv.getContext('2d'),mk=$('mk'),mctx=mk.getContext('2d'),mc=document.createElement('canvas'),mcx=mc.getContext('2d');
+const SL=[['brightness',0,200,100,'%'],['contrast',0,200,100,'%'],['saturate',0,300,100,'%'],['hue-rotate',0,360,0,'deg'],['blur',0,20,0,'px'],['sepia',0,100,0,'%'],['grayscale',0,100,0,'%'],['invert',0,100,0,'%']];
+$('sliders').innerHTML=SL.map(([n,a,b,d])=>`<div class="sl"><span>${n}</span><input type="range" data-f="${n}" min="${a}" max="${b}" value="${d}"></div>`).join('');
+let base=null,rot=0,fx=false,hasMask=false;
+const filt=()=>SL.map(([n,,,,u])=>`${n}(${document.querySelector(`[data-f="${n}"]`).value}${u})`).join(' ');
+function resetMask(){mk.width=mc.width=cv.width;mk.height=mc.height=cv.height;mcx.globalCompositeOperation='source-over';mcx.fillStyle='#000';mcx.fillRect(0,0,mc.width,mc.height);mctx.clearRect(0,0,mk.width,mk.height);hasMask=false}
+function redraw(resize){
+  const w=base.width,h=base.height,sw=rot%2?h:w,sh=rot%2?w:h;
+  if(cv.width!==sw||cv.height!==sh){cv.width=sw;cv.height=sh;resetMask()}
+  ctx.clearRect(0,0,sw,sh);ctx.save();ctx.filter=filt();ctx.translate(sw/2,sh/2);ctx.rotate(rot*Math.PI/2);ctx.scale(fx?-1:1,1);ctx.drawImage(base,-w/2,-h/2);ctx.restore();
+}
+function resetSliders(){SL.forEach(([n,,,d])=>document.querySelector(`[data-f="${n}"]`).value=d)}
+function openEditor(src){
+  const i=new Image();
+  i.onload=()=>{base=document.createElement('canvas');base.width=i.naturalWidth;base.height=i.naturalHeight;base.getContext('2d').drawImage(i,0,0);rot=0;fx=false;resetSliders();cv.width=0;redraw();$('paint').checked=false;$('ed').hidden=false};
+  i.onerror=()=>toast('Could not open that image');i.src=src;
+}
+$('sliders').oninput=()=>redraw();
+$('rotL').onclick=()=>{rot=(rot+3)%4;redraw()};
+$('flip').onclick=()=>{fx=!fx;redraw()};
+$('reset').onclick=()=>{rot=0;fx=false;resetSliders();cv.width=0;redraw()};
+$('clrMask').onclick=resetMask;
+$('close').onclick=()=>$('ed').hidden=true;
+$('apply').onclick=()=>{const b=document.createElement('canvas');b.width=cv.width;b.height=cv.height;b.getContext('2d').drawImage(cv,0,0);base=b;rot=0;fx=false;resetSliders();redraw();toast('Changes kept')};
+$('save').onclick=()=>cv.toBlob(b=>{if(!b)return toast('This image cannot be exported');download(URL.createObjectURL(b),'lightbox-edit-'+Date.now()+'.png')});
+$('toAI').onclick=()=>{
+  let url;try{url=cv.toDataURL('image/png')}catch(e){return toast('This image cannot be exported')}
+  refs.unshift({name:'edit.png',url});
+  const done=()=>{renderRefs();$('ed').hidden=true;$('prov').value='oa';syncProv();$('prompt').focus();toast('Describe the change you want, then press Edit photo')};
+  if(hasMask)mc.toBlob(b=>{maskBlob=b;done()});else{maskBlob=null;done()}
+};
+/* brush: painted pixels become transparent in the exported mask, which is the area OpenAI changes */
+let last=null;
+function pt(e){const r=mk.getBoundingClientRect();return[(e.clientX-r.left)*mk.width/r.width,(e.clientY-r.top)*mk.height/r.height]}
+function stroke(a,b){
+  const s=+$('brush').value*mk.width/mk.getBoundingClientRect().width;
+  mcx.globalCompositeOperation='destination-out';mcx.lineCap=mcx.lineJoin='round';mcx.lineWidth=s;mcx.beginPath();mcx.moveTo(...a);mcx.lineTo(...b);mcx.stroke();
+  mctx.strokeStyle='rgba(214,36,110,.55)';mctx.lineCap=mctx.lineJoin='round';mctx.lineWidth=s;mctx.beginPath();mctx.moveTo(...a);mctx.lineTo(...b);mctx.stroke();
+  hasMask=true;
+}
+mk.addEventListener('pointerdown',e=>{if(!$('paint').checked)return;mk.setPointerCapture(e.pointerId);last=pt(e);stroke(last,last)});
+mk.addEventListener('pointermove',e=>{if(!last)return;const p=pt(e);stroke(last,p);last=p});
+['pointerup','pointercancel'].forEach(v=>mk.addEventListener(v,()=>last=null));
+mk.style.pointerEvents='auto';
+$('paint').onchange=()=>mk.style.cursor=$('paint').checked?'crosshair':'default';
+addEventListener('keydown',e=>{if(e.key==='Escape')$('ed').hidden=true});
+</script>
+</body>
+</html>
