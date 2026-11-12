@@ -56,7 +56,7 @@ main{padding:24px}
 .tools .sl{display:grid;grid-template-columns:90px 1fr;align-items:center;font-size:13px;color:var(--mut)}
 .tools input[type=range]{width:100%;accent-color:var(--acc)}
 .btns{display:flex;flex-wrap:wrap;gap:6px}
-.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px}
+.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px}.engineBadge{border:1px solid var(--line);border-radius:8px;background:var(--field);padding:9px 10px;font-size:14px}.engineStatus{font-size:12px;color:var(--mut);min-height:18px}.tools .chk,.tools #brush,.tools #clrMask{display:none!important}
 @media(max-width:860px){.app{grid-template-columns:1fr}aside{position:static;height:auto}.edbox{grid-template-columns:1fr;overflow:auto}}
 </style>
 </head>
@@ -77,7 +77,7 @@ main{padding:24px}
 
   <div class="row">
     <div><label for="prov">Engine</label>
-    <select id="prov"><option value="poll">Free (generate only)</option><option value="oa">OpenAI (generate + edit)</option></select></div>
+    <div class="engineBadge">FLUX.2 Klein · shared free image engine</div></div>
     <div><label for="style">Style</label>
     <select id="style"><option value="">Natural photo</option><option>golden hour sunlight, shallow depth of field</option><option>studio lighting, sharp focus, portrait lens</option><option>cinematic film still, 35mm, fine grain</option><option>black and white photograph, high contrast</option><option>aerial drone photograph</option><option>macro photograph, fine detail</option><option>clean product photo on a white background</option><option>candid street photography</option></select></div>
   </div>
@@ -87,16 +87,7 @@ main{padding:24px}
     <div><label for="n">How many</label>
     <select id="n"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
   </div>
-  <div class="row" id="pollOpts">
-    <div><label for="pmodel">Model</label><select id="pmodel"><option value="flux">Flux</option><option value="turbo">Turbo</option></select></div>
-    <div><label for="seed">Seed (optional)</label><input type="number" id="seed" placeholder="random"></div>
-  </div>
-  <div id="oaOpts" hidden>
-    <label for="key">OpenAI API key (stays in this browser)</label>
-    <input type="password" id="key" placeholder="sk-..." autocomplete="off">
-    <div style="margin-top:8px"><label for="q">Quality</label>
-    <select id="q"><option value="auto">Auto</option><option value="low">Low (fast)</option><option value="medium">Medium</option><option value="high">High</option></select></div>
-  </div>
+  <div id="engineStatus" class="engineStatus" role="status">Connecting to the shared free image engine when you generate.</div>
   <button class="go" id="go">Generate</button>
 </aside>
 
@@ -118,13 +109,13 @@ main{padding:24px}
 </div>
 <div id="toast" role="status"></div>
 
-<script>
+<script type="module">
+import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let refs=[],results=[],pending=0,maskBlob=null;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),9000)}
-try{$('key').value=localStorage.getItem('lb_key')||''}catch(e){}
 
 /* ---------- uploads ---------- */
 const toURL=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});
@@ -143,9 +134,8 @@ $('file').onchange=e=>{addFiles(e.target.files);e.target.value=''};
 $('drop').addEventListener('drop',e=>addFiles(e.dataTransfer.files));
 addEventListener('paste',e=>{const f=[...(e.clipboardData?.files||[])];if(f.length)addFiles(f)});
 
-/* ---------- engine options ---------- */
-function syncProv(){const oa=$('prov').value==='oa';$('oaOpts').hidden=!oa;$('pollOpts').hidden=oa}
-$('prov').onchange=syncProv;syncProv();
+/* ---------- shared image engine ---------- */
+
 
 /* ---------- gallery ---------- */
 function add(src,prompt){results.unshift({src,prompt});renderGal()}
@@ -182,38 +172,75 @@ async function loadRemote(url){
 async function run(){
   const raw=$('prompt').value.trim();
   if(!raw)return toast('Write a prompt first');
-  const full=raw+', realistic photograph shot on a real camera, natural textures'+($('style').value?', '+$('style').value:'');
-  const n=+$('n').value,size=$('size').value,[w,h]=size.split('x').map(Number);
-  $('go').disabled=true;pending=n;renderGal();
-  const t0=Date.now(),tick=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);$('go').textContent='Working... '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},500);
+  const full=raw+', realistic photograph, natural textures'+($('style').value?', '+$('style').value:'');
+  const n=+$('n').value;
+  const dims={'1024x1024':[1024,1024],'1536x1024':[1024,680],'1024x1536':[680,1024]};
+  const [width,height]=dims[$('size').value]||[1024,1024];
+  $('go').disabled=true;
+  pending=n;
+  renderGal();
+  const started=Date.now(),tick=setInterval(()=>{
+    $('go').textContent='Working… '+Math.floor((Date.now()-started)/1000)+'s';
+  },500);
+  let client=null;
   try{
-    if($('prov').value==='poll'){
-      if(refs.length){$('prov').value='oa';syncProv();throw new Error('Uploaded photos need the OpenAI engine. I switched it for you: add your API key and press Edit photo again.')}
-      const base=$('seed').value?+$('seed').value:Math.floor(Math.random()*1e6);
-      for(let i=0;i<n;i++){
-        const url=`https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=${w}&height=${h}&seed=${base+i}&nologo=true&model=${$('pmodel').value}`;
-        add(await loadRemote(url),raw);pending--;renderGal();
-      }
-    }else{
-      const key=$('key').value.trim();
-      if(!key)throw new Error('Add your OpenAI API key first');
-      try{localStorage.setItem('lb_key',key)}catch(e){}
-      const head={Authorization:'Bearer '+key};let res;
-      if(refs.length){
-        const fd=new FormData();
-        fd.append('model','gpt-image-1');fd.append('prompt',full);fd.append('n',n);fd.append('size',size);fd.append('quality',$('q').value);
-        for(const r of refs)fd.append('image[]',await (await fetch(r.url)).blob(),r.name);
-        if(maskBlob)fd.append('mask',maskBlob,'mask.png');
-        res=await fetch('https://api.openai.com/v1/images/edits',{method:'POST',headers:head,body:fd});
-      }else{
-        res=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{...head,'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-image-1',prompt:full,n,size,quality:$('q').value})});
-      }
-      const j=await res.json();
-      if(!res.ok)throw new Error(j.error?.message||'OpenAI returned error '+res.status);
-      j.data.forEach(d=>add('data:image/png;base64,'+d.b64_json,raw));
+    $('engineStatus').textContent='Connecting to the shared FLUX.2 Klein engine…';
+    client=await Client.connect('black-forest-labs/FLUX.2-klein-4B');
+    const gallery=[];
+    for(const r of refs){
+      const blob=await (await fetch(r.url)).blob();
+      gallery.push([await handle_file(blob),null]);
     }
-  }catch(e){toast(e.message||'Something went wrong')}
-  clearInterval(tick);pending=0;$('go').disabled=false;renderGal();renderRefs();
+    let added=0;
+    for(let i=0;i<n;i++){
+      $('engineStatus').textContent=gallery.length
+        ? 'Sending reference image'+(gallery.length===1?'':'s')+' and edit instructions…'
+        : 'Sending prompt to the shared image engine…';
+      const job=client.submit('/infer',[
+        full,
+        gallery.length?gallery:null,
+        'Distilled (4 steps)',
+        0,
+        true,
+        width,
+        height,
+        4,
+        1.0,
+        false
+      ]);
+      let payload=null;
+      const timer=setTimeout(()=>{try{job.cancel()}catch(e){}},180000);
+      for await(const message of job){
+        if(message.type==='status'){
+          const stage=message.stage||'working';
+          const pos=message.position!=null?' · queue position '+message.position:'';
+          $('engineStatus').textContent=stage==='pending'?'Waiting for free GPU'+pos+'…'
+            :stage==='generating'?'Generating image…'
+            :stage==='complete'?'Generation complete.':'Image engine: '+stage+pos;
+        }
+        if(message.type==='data')payload=message.data;
+      }
+      clearTimeout(timer);
+      const item=payload&&payload[0];
+      const file=item&&item.image?item.image:item;
+      const src=typeof file==='string'?file:(file&&(file.url||file.path));
+      if(!src)throw new Error('The engine finished but did not return a displayable image.');
+      add(src,raw);
+      added++;
+      pending--;
+      renderGal();
+    }
+    $('engineStatus').textContent='Finished — '+added+' image'+(added===1?'':'s')+' added to your gallery.';
+  }catch(e){
+    $('engineStatus').textContent=e.message||'Image generation failed.';
+    toast(e.message||'Something went wrong');
+  }
+  clearInterval(tick);
+  pending=0;
+  $('go').disabled=false;
+  $('go').textContent=refs.length?'Edit photo':'Generate';
+  renderGal();
+  renderRefs();
 }
 $('go').onclick=run;
 $('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))run()});
@@ -262,7 +289,7 @@ function stroke(a,b){
 mk.addEventListener('pointerdown',e=>{if(!$('paint').checked)return;mk.setPointerCapture(e.pointerId);last=pt(e);stroke(last,last)});
 mk.addEventListener('pointermove',e=>{if(!last)return;const p=pt(e);stroke(last,p);last=p});
 ['pointerup','pointercancel'].forEach(v=>mk.addEventListener(v,()=>last=null));
-mk.style.pointerEvents='auto';
+mk.style.pointerEvents='none';
 $('paint').onchange=()=>mk.style.cursor=$('paint').checked?'crosshair':'default';
 addEventListener('keydown',e=>{if(e.key==='Escape')$('ed').hidden=true});
 </script>
