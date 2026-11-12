@@ -232,7 +232,7 @@ async function run(){
           if(value.url)return value.url;
           if(value.path){
             if(/^https?:\\/\\//i.test(value.path))return value.path;
-            return 'https://black-forest-labs-flux2-klein-4b.hf.space/file='+encodeURIComponent(value.path);
+            return 'https://black-forest-labs-flux2-klein-4b.hf.space/file='+value.path.replace(/ /g,'%20');
           }
           if(value.data)return unpackImage(value.data);
         }
